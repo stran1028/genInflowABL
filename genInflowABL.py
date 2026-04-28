@@ -8,7 +8,7 @@ import struct
 #   XYZ = coordinate system defined in the PALM simulation of Boston
 #   RST = coordinate system in the frame of vehicle (r aft, s starboard, t up)
 
-# setting global variables from helios STP
+# setting global variables from helios inputs.py file
 rinf = 1.224
 gamma = 1.4                        # ratio of specific heats
 rgas = 287.05                   # Gas constant,      J/kg/K
@@ -20,15 +20,16 @@ ainf = np.sqrt(gamma*pinf/rinf)             # Speed of sound
 mach = 0.2
 
 # CFD simulation inputs
-dtcfd = 3.3333e-04
-xyzlo = [-6400,-6400,-6400] # minimum pt in domain
-Lxdom = 6400*2 # lengths of cfd domain
-Lydom = 6400*2 # lengths of cfd domain
-Lzdom = 6400*2 # lengths of cfd domain
+rpm = 4000
+dpsi = 90.00
+dtcfd = dpsi/(rpm*60)
+xyzlo = [-16,16,16] # minimum pt in domain
+Lxdom = 32 # lengths of cfd domain
+Lydom = 32 # lengths of cfd domain
+Lzdom = 32 # lengths of cfd domain
 nr = 128  # number of probes in the aft dir
 ns = 128  # number of probes in starboard dir
 nt = 128  # number of probes in vertical dir
-ntime = 500 
 
 # Vehicle trajectory information
 Ltime = 20 # length of trajectory
@@ -48,6 +49,11 @@ def main():
             file_id = Dataset("/projectnb/turbomac/Emmanuel_PALM_simulation_output/vertiport_40_beach_street_child2_4pm_24th_July")
             clim = [-10,10]
 
+    # Read PALM coordinate data
+    x = np.asarray(file_id.variables['x'])
+    y = np.asarray(file_id.variables['yv'])
+    z = np.asarray(file_id.variables['zu_3d'])
+    time = np.asarray(file_id.variables['time'])
     
     # DEBUG: OUTPUT PALM INFLOW
 #    print("Variables: ")
@@ -58,11 +64,6 @@ def main():
 #    print(f"y limits: {y[0]} to {y[-1]}")
 #    print(f"z limits: {z[0]} to {z[-1]}")
 
-    # Read PALM coordinate data
-    x = np.asarray(file_id.variables['x'])
-    y = np.asarray(file_id.variables['yv'])
-    z = np.asarray(file_id.variables['zu_3d'])
-    time = np.asarray(file_id.variables['time'])
 
     # start at different timesteps to get different disturbances
     for t_start in [1]: #, 500, 1000, 1500, 2000, 2500, 3000]:
@@ -105,7 +106,7 @@ def main():
         q[:,:,:,1] = (vec @ r_hat) / ainf
         q[:,:,:,2] = (vec @ s_hat) / ainf
         q[:,:,:,3] = (vec @ t_hat) / ainf
-        vmag = np.linalg.norm(q[:,:,:,1:4]/q[:,:,:,0], axis=-1)  
+        vmag = np.linalg.norm(q[:,:,:,1:4]/q[:,:,:,0:1], axis=-1)  
         q[:,:,:,4] = 1/(gamma*(gamma-1)) + 0.5*vmag**2
 
         print('writing IC file. q = ',q.shape)
@@ -152,7 +153,7 @@ def main():
             q[:,:,k,1] = (vec @ r_hat) / ainf
             q[:,:,k,2] = (vec @ s_hat) / ainf
             q[:,:,k,3] = (vec @ t_hat) / ainf
-            vmag = np.linalg.norm(q[:,:,k,1:4]/q[:,:,k,0], axis=-1)  
+            vmag = np.linalg.norm(q[:,:,k,1:4]/q[:,:,k,0:1], axis=-1)  
             q[:,:,k,4] = 1/(gamma*(gamma-1)) + 0.5*vmag**2
 
         # Write out data to plot3D 
@@ -163,6 +164,9 @@ def main():
         # check if any nans at the end
         print("Indices of nans in solution: ")
         print(np.where(np.isnan(q))[0])
+
+        print("Indices of Bad Cells (Before):")
+        print(np.where(q[:,:,:,1:5]>1))
 
         # Here we use Pchip interpolation to resample time series data 
         # to match Helios CFD's timestep. Helps avoid interpolation
@@ -178,9 +182,16 @@ def main():
                     pchip = PchipInterpolator(ftime,q[i,j,:,v])
                     qi[i,j,:,v] = pchip(tcfd)
         
+        print("Indices of Bad Cells (Before):")
+        print(np.where(qi[:,:,:,1:5]>1))
+
         # Write to PLOT3D
         fname = run + '_Disturbance_tStart' + str(t_start).zfill(5) 
         print('writing' + fname)
+        vecr = np.linspace(0,nstepcfd*Lxdom/ns,nstepcfd)
+        vecs = Lydom*np.linspace(0,1,ns+1)
+        vect = Lzdom*np.linspace(0,1,nt+1)
+        sgrids,tgrids,rgrids = np.meshgrid(vecs,vect,vecr,indexing='ij') 
         writeP3D(sgrids,tgrids,rgrids,qi,fname)
                
 def plotTrajectoryField(fn,file_id,tstart,t_hat,time,x,y,z,vh_s):
@@ -321,6 +332,11 @@ def extractPALM(file_id,xyz,t,x,y,z):
     w_sub = np.asarray(file_id.variables['w'][t, iz0:iz1, iy0:iy1, ix0:ix1])
     x_sub, y_sub, z_sub = x[ix0:ix1], y[iy0:iy1], z[iz0:iz1]
 
+    # mask PALM fill values
+    u_sub[u_sub < -9000] = 0.0
+    v_sub[v_sub < -9000] = 0.0
+    w_sub[w_sub < -9000] = 0.0
+
     # generate UVW interpolators    
     Ufunc = RegularGridInterpolator((x_sub, y_sub, z_sub), u_sub.T, method='linear',bounds_error=False,fill_value=0.0)
     Vfunc = RegularGridInterpolator((x_sub, y_sub, z_sub), v_sub.T, method='linear',bounds_error=False,fill_value=0.0)
@@ -337,9 +353,6 @@ def writeP3D(X,Y,Z,q,fname):
     imax, jmax, kmax = X.shape
 
     with open(fname + ".xyz", "wb") as f:
-#        write_record(f, struct.pack('>i', 1))
-#        write_record(f, struct.pack('>iii', imax, jmax, kmax))
-
         f.write(struct.pack(">i", 1))
         f.write(struct.pack(">iii", imax, jmax, kmax))
         f.write(X.flatten(order='F').astype('>f8').tobytes())
@@ -347,9 +360,6 @@ def writeP3D(X,Y,Z,q,fname):
         f.write(Z.flatten(order='F').astype('>f8').tobytes())
 
     with open(fname + ".q", "wb") as f:
-        #write_record(f, struct.pack('>1i', 1))
-        #write_record(f, struct.pack('>3i', imax, jmax, kmax))
-        #write_record(f, struct.pack('>4d', mach, 0.0, 0.0, 0.0))
         f.write(struct.pack(">i", 1))
         f.write(struct.pack(">iii", imax, jmax, kmax))
         f.write(struct.pack('>4d', mach, 0.0, 0.0, 0.0))
@@ -360,11 +370,6 @@ def writeP3D(X,Y,Z,q,fname):
                 .astype('>f8')
                 .tobytes()
             )
-       # sol_data = b''.join(
-       #     q[:, :, :, i].flatten(order='F').astype('>f8').tobytes()
-       #     for i in range(5)
-       # )
-       # write_record(f, sol_data) 
 
 def write_record(f, data_bytes):
     """Write a big-endian Fortran unformatted record."""
