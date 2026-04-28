@@ -256,11 +256,14 @@ def getRSTVectors(ftime,vh_s,k1,k2):
     dy = (vh_s[k2,1]-vh_s[k1,1])/dt
     dz = (vh_s[k2,2]-vh_s[k1,2])/dt
 
-    r_hat = np.array([dx,dy,dz])
-    r_hat = -r_hat/np.linalg.norm(r_hat) # aft direction unit vector
+    d_hat = np.array([dx,dy,dz])
+    d_hat = -d_hat/np.linalg.norm(d_hat) # direction unit vector
+
     t_hat = np.array([0,0,1]) # vertical unit vector fixed
-    s_hat = np.cross(t_hat,r_hat) # lateral unit vector
+    s_hat = np.cross(t_hat,d_hat) # lateral unit vector
     s_hat = s_hat/np.linalg.norm(s_hat)
+    r_hat = np.cross(s_hat,t_hat) # aft unit vector
+    r_hat = r_hat/np.linalg.norm(r_hat)
 
     return r_hat,s_hat,t_hat
 
@@ -305,12 +308,12 @@ def extractPALM(file_id,xyz,t,x,y,z):
     xmin,xmax = xyz[:,:,:,0].min(), xyz[:,:,:,0].max()
     ymin,ymax = xyz[:,:,:,1].min(), xyz[:,:,:,1].max()
     zmin,zmax = xyz[:,:,:,2].min(), xyz[:,:,:,2].max()
-    ix0 = max(np.searchsorted(x,xmin)-1, 0)
-    ix1 = min(np.searchsorted(x,xmax)+1, len(x)-1)
-    iy0 = max(np.searchsorted(y,ymin)-1, 0)
-    iy1 = min(np.searchsorted(y,ymax)+1, len(y)-1)
-    iz0 = max(np.searchsorted(z,zmin)-1, 0)
-    iz1 = min(np.searchsorted(z,zmax)+1, len(z)-1)
+    ix0 = max(np.searchsorted(x,xmin)-2, 0)
+    ix1 = min(np.searchsorted(x,xmax)+2, len(x)-1)
+    iy0 = max(np.searchsorted(y,ymin)-2, 0)
+    iy1 = min(np.searchsorted(y,ymax)+2, len(y)-1)
+    iz0 = max(np.searchsorted(z,zmin)-2, 0)
+    iz1 = min(np.searchsorted(z,zmax)+2, len(z)-1)
 
     # get the PALM flowfield
     u_sub = np.asarray(file_id.variables['u'][t, iz0:iz1, iy0:iy1, ix0:ix1])
@@ -319,9 +322,9 @@ def extractPALM(file_id,xyz,t,x,y,z):
     x_sub, y_sub, z_sub = x[ix0:ix1], y[iy0:iy1], z[iz0:iz1]
 
     # generate UVW interpolators    
-    Ufunc = RegularGridInterpolator((x_sub, y_sub, z_sub), u_sub.T, method='pchip',bounds_error=False,fill_value=0.0)
-    Vfunc = RegularGridInterpolator((x_sub, y_sub, z_sub), v_sub.T, method='pchip',bounds_error=False,fill_value=0.0)
-    Wfunc = RegularGridInterpolator((x_sub, y_sub, z_sub), w_sub.T, method='pchip',bounds_error=False,fill_value=0.0)
+    Ufunc = RegularGridInterpolator((x_sub, y_sub, z_sub), u_sub.T, method='linear',bounds_error=False,fill_value=0.0)
+    Vfunc = RegularGridInterpolator((x_sub, y_sub, z_sub), v_sub.T, method='linear',bounds_error=False,fill_value=0.0)
+    Wfunc = RegularGridInterpolator((x_sub, y_sub, z_sub), w_sub.T, method='linear',bounds_error=False,fill_value=0.0)
 
     pts = xyz.reshape(-1,3)  
     U = Ufunc(pts).reshape(n0,n1,n2)
