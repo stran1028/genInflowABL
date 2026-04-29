@@ -21,6 +21,7 @@ mach = 0.2
 
 # CFD simulation inputs
 rpm = 4000
+cfdgridunit = 0.001
 dpsi = 90.00
 dtcfd = dpsi/(rpm*60)
 xyzlo = [-16,16,16] # minimum pt in domain
@@ -110,7 +111,7 @@ def main():
         q[:,:,:,4] = 1/(gamma*(gamma-1)) + 0.5*vmag**2
 
         print('writing IC file. q = ',q.shape)
-        writeP3D(rgrids,sgrids,tgrids,q,'initfield')
+        writeP3D(rgrids/cfdgridunit,sgrids/cfdgridunit,tgrids/cfdgridunit,q,'initfield')
 
         #==================================================
         # GENERATE HELIOS ABL TIME SERIES FILE       
@@ -165,9 +166,6 @@ def main():
         print("Indices of nans in solution: ")
         print(np.where(np.isnan(q))[0])
 
-        print("Indices of Bad Cells (Before):")
-        print(np.where(q[:,:,:,1:5]>1))
-
         # Here we use Pchip interpolation to resample time series data 
         # to match Helios CFD's timestep. Helps avoid interpolation
         # issues with Helios ABL's linear interpolation
@@ -182,9 +180,6 @@ def main():
                     pchip = PchipInterpolator(ftime,q[i,j,:,v])
                     qi[i,j,:,v] = pchip(tcfd)
         
-        print("Indices of Bad Cells (Before):")
-        print(np.where(qi[:,:,:,1:5]>1))
-
         # Write to PLOT3D
         fname = run + '_Disturbance_tStart' + str(t_start).zfill(5) 
         print('writing' + fname)
@@ -192,7 +187,7 @@ def main():
         vecs = Lydom*np.linspace(0,1,ns+1)
         vect = Lzdom*np.linspace(0,1,nt+1)
         sgrids,tgrids,rgrids = np.meshgrid(vecs,vect,vecr,indexing='ij') 
-        writeP3D(sgrids,tgrids,rgrids,qi,fname)
+        writeP3D(sgrids/cfdgridunit,tgrids/cfdgridunit,rgrids/cfdgridunit,qi,fname)
                
 def plotTrajectoryField(fn,file_id,tstart,t_hat,time,x,y,z,vh_s):
     ind = [0,0,0]
