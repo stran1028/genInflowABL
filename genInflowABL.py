@@ -347,7 +347,7 @@ def extractPALM(file_id,xyz,t,x,y,z):
 def writeP3D(X,Y,Z,q,fname):
     imax, jmax, kmax = X.shape
 
-    with open(fname + ".xyz", "wb") as f:
+    with open(fname + ".x", "wb") as f:
         f.write(struct.pack(">i", 1))
         f.write(struct.pack(">iii", imax, jmax, kmax))
         f.write(X.flatten(order='F').astype('>f8').tobytes())
