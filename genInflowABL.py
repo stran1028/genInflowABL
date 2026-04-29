@@ -102,7 +102,7 @@ def main():
         U,V,W = extractPALM(file_id,xyz,0,x,y,z)
 
         # convert velocities to RST
-        vec = np.stack([U, V, W], axis=-1) + vh_v[0,:]
+        vec = np.stack([U, V, W], axis=-1) - vh_v[0,:]
         q[:,:,:,0] = 1.0
         q[:,:,:,1] = (vec @ r_hat) / ainf
         q[:,:,:,2] = (vec @ s_hat) / ainf
@@ -110,7 +110,7 @@ def main():
         vmag = np.linalg.norm(q[:,:,:,1:4]/q[:,:,:,0:1], axis=-1)  
         q[:,:,:,4] = 1/(gamma*(gamma-1)) + 0.5*vmag**2
 
-        print('writing IC file. q = ',q.shape)
+        print('writing IC file')
         writeP3D(rgrids/cfdgridunit,sgrids/cfdgridunit,tgrids/cfdgridunit,q,'initfield')
 
         #==================================================
@@ -148,7 +148,7 @@ def main():
             U,V,W = extractPALM(file_id,xyz[0:1,:,:,:],k,x,y,z) 
 
             # convert velocities to RST
-            vec = (np.stack([U, V, W], axis=-1) + vh_v[min(k,ntime-2),:])[0] 
+            vec = (np.stack([U, V, W], axis=-1) - vh_v[min(k,ntime-2),:])[0] 
 
             q[:,:,k,0] = 1.0
             q[:,:,k,1] = (vec @ r_hat) / ainf
@@ -274,6 +274,10 @@ def getRSTVectors(ftime,vh_s,k1,k2):
     return r_hat,s_hat,t_hat
 
 def computeTrajectory(vh_s0,azi,ftime):
+    # resample time to uniform grid for simplicity
+    ntime = len(ftime)
+    t = np.linspace(0,ftime[-1]-ftime[0],ntime)
+    
     # vertiport approach acceleration components
     # |vh_a| = 0.1*9.81         0.1g from Jeremy Bain
     # sqrt(vx**2+vy**2)=sqrt(2*vx**2)=8*vz    8:1 horizontal:vertical descent ratio from FAA vertiport approach guidelines
@@ -281,28 +285,29 @@ def computeTrajectory(vh_s0,azi,ftime):
     vh_a[2] = np.sqrt((0.1*9.81)**2/8**2) # vertical acceleration
     vh_a[1] = 8*vh_a[2]*np.sin(np.pi*azi/180) 
     vh_a[0] = 8*vh_a[2]*np.cos(np.pi*azi/180)
-
+    
     # vehicle displacement array
-    vh_s = np.zeros((len(ftime),3))
-
+    s = np.zeros((ntime,3))
+    
     # setting vertiport location as t0 and calculating departure as it's_hat simpler
-    vh_s[0]=vh_s0
-
+    s[0]=vh_s0
+    
     # need the 0:1 slice here to keep from flattening to 1D automatically
     #                  |
     #                  v                 newaxis allows shape [ntime,3]
-    vh_s[1:,:] = vh_s[0:1,:] + 0.5*vh_a*ftime[1:,np.newaxis]**2
-
+    s[1:,:] = s[0:1,:] + 0.5*vh_a*t[1:,np.newaxis]**2
+    
     # flip in time to make it approach, not departure
-    vh_s = np.flip(vh_s, axis=0)
-    #print("Initial vehicle location: ", vh_s0,vh_s[0])
-
+    s = np.flip(s, axis=0)
+   
+    # reinterpolate back to uneven timesteps (ftime) 
+    pchip = PchipInterpolator(t, s, axis=0)
+    vh_s = pchip(ftime)
+    vh_v = pchip.derivative()(ftime)
+    
     # plot trajectory over initial flowfield
 #    fname = 'InitialField_tStart' + str(t_start) + '_Azi' + str(azi)
 #    plotTrajectoryField(fname,file_id,t_start+i,time,x,y,z,vh_s)
-
-    # calculate vehicle velocity from displacement
-    vh_v = np.diff(vh_s,axis=0) / np.diff(ftime,axis=0)[:,np.newaxis]
     return vh_s, vh_v, vh_a
 
 def extractPALM(file_id,xyz,t,x,y,z):
