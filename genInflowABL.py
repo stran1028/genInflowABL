@@ -68,7 +68,6 @@ def main():
 
     # start at different timesteps to get different disturbances
     for t_start in [1]: #, 500, 1000, 1500, 2000, 2500, 3000]:
-        # DEBUG THIS XXX not sure if right
         print("time start index: ", t_start)
         t_end = np.argsort(abs(time-(time[t_start]+Ltime)))[0]
         ntime = t_end-t_start+1
@@ -293,8 +292,6 @@ def computeTrajectory(vh_s0,azi,ftime):
     s[0]=vh_s0
     
     # need the 0:1 slice here to keep from flattening to 1D automatically
-    #                  |
-    #                  v                 newaxis allows shape [ntime,3]
     s[1:,:] = s[0:1,:] + 0.5*vh_a*t[1:,np.newaxis]**2
     
     # flip in time to make it approach, not departure
@@ -305,9 +302,6 @@ def computeTrajectory(vh_s0,azi,ftime):
     vh_s = pchip(ftime)
     vh_v = pchip.derivative()(ftime)
     
-    # plot trajectory over initial flowfield
-#    fname = 'InitialField_tStart' + str(t_start) + '_Azi' + str(azi)
-#    plotTrajectoryField(fname,file_id,t_start+i,time,x,y,z,vh_s)
     return vh_s, vh_v, vh_a
 
 def extractPALM(file_id,xyz,t,x,y,z):
