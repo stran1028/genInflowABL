@@ -98,7 +98,7 @@ def main():
 
         # interpolate velocities from PALM data
         q = np.zeros((nr+1,ns+1,nt+1,5))
-        U,V,W = extractPALM(file_id,xyz,0,x,y,z)
+        U,V,W = extractPALM(file_id,xyz,t_start,x,y,z)
 
         # convert velocities to RST
         vec = np.stack([U, V, W], axis=-1) - vh_v[0,:]
@@ -144,7 +144,7 @@ def main():
               + sgrids[..., np.newaxis] * s_hat
               + tgrids[..., np.newaxis] * t_hat)
 
-            U,V,W = extractPALM(file_id,xyz[0:1,:,:,:],k,x,y,z) 
+            U,V,W = extractPALM(file_id,xyz[0:1,:,:,:],k+t_start,x,y,z) 
 
             # convert velocities to RST
             vec = (np.stack([U, V, W], axis=-1) - vh_v[min(k,ntime-2),:])[0] 
