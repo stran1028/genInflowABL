@@ -21,9 +21,10 @@ mach = 0.2
 
 # CFD simulation inputs
 rpm = 4000
-cfdgridunit = 0.001
 dpsi = 90.00
-dtcfd = dpsi/(rpm*60)
+Trev = 60/rpm
+dtcfd = (dpsi/360)*Trev
+cfdgridunit = 0.001
 xyzlo = [-16,16,16] # minimum pt in domain
 Lxdom = 32 # lengths of cfd domain
 Lydom = 32 # lengths of cfd domain
