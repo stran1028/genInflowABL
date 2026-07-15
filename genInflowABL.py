@@ -20,11 +20,14 @@ ainf = np.sqrt(gamma*pinf/rinf)             # Speed of sound
 mach = 0.2
 
 # CFD simulation inputs
-rpm = 4000
-dpsi = 90.00
-Trev = 60/rpm
-dtcfd = (dpsi/360)*Trev
-cfdgridunit = 0.001
+rpm = 700
+tRev = 60/rpm
+tBuff = 20*tRev # time at beginning of simulation before manuever begins
+tRestart = 0 # timestep that the restart run will begin, 0 means no restart
+
+dpsi = 10.00
+dtcfd = (dpsi/360)*tRev
+cfdgridunit = 1.000
 xyzlo = [-16,16,16] # minimum pt in domain
 Lxdom = 32 # lengths of cfd domain
 Lydom = 32 # lengths of cfd domain
@@ -73,8 +76,6 @@ def main():
         t_end = np.argsort(abs(time-(time[t_start]+Ltime)))[0]
         ntime = t_end-t_start+1
         ftime = time[t_start:t_end+1]-time[t_start]
-        tcfd = np.arange(0,ftime[-1],dtcfd) 
-        nstepcfd = len(tcfd)
 
         #==================================================
         # COMPUTE THE FLIGHT TRAJECTORY
@@ -157,37 +158,45 @@ def main():
             vmag = np.linalg.norm(q[:,:,k,1:4]/q[:,:,k,0:1], axis=-1)  
             q[:,:,k,4] = 1/(gamma*(gamma-1)) + 0.5*vmag**2
 
-        # Write out data to plot3D 
+        # Add buffer at beginning before motion starts
+        tmod = np.concatenate((np.array([0]),ftime+tBuff))
+        qmod = np.zeros((ns+1,nt+1,ntime+1,5))
+        qmod[:,:,0,:] = q[:,:,0,:]
+        qmod[:,:,1:,:] = q
+
         # Helios ABL routine reads time series in the inlet plane ref frame
         # x = starboard, y = vertical up, z = time
-        q = np.asarray(q[:,:,:,[0,2,3,1,4]],dtype=np.float64)
-        
+        qmod = np.asarray(qmod[:,:,:,[0,2,3,1,4]],dtype=np.float64)
+
         # check if any nans at the end
         print("Indices of nans in solution: ")
-        print(np.where(np.isnan(q))[0])
+        print(np.where(np.isnan(qmod))[0])
 
         # Here we use Pchip interpolation to resample time series data 
         # to match Helios CFD's timestep. Helps avoid interpolation
-        # issues with Helios ABL's linear interpolation
+        # issues with Helios ABL's linear interpolation.
+        # We also account for restart timestep here. 
         # 
         # q = size(nstarboard,nvertical,ntime,5)
-        # qi = size(nstarboard,nvertical,ntimeCFD,5)
-        qi = np.zeros((ns+1,nt+1,nstepcfd,5))
-        print('resampling to ',qi.shape)
-        for i in range(ns+1): 
+        # qinterp = size(nstarboard,nvertical,nstepcfd,5)
+        tcfd = np.arange(tRestart,tmod[-1],dtcfd)
+        nstepcfd = len(tcfd)
+        qinterp = np.zeros((ns+1,nt+1,nstepcfd,5))
+        print(f"resampling to dt = {dtcfd}, shape = {qinterp.shape}")
+        for i in range(ns+1):
             for j in range(nt+1):
                 for v in range(5):
-                    pchip = PchipInterpolator(ftime,q[i,j,:,v])
-                    qi[i,j,:,v] = pchip(tcfd)
-        
+                    pchip = PchipInterpolator(tmod,qmod[i,j,:,v])
+                    qinterp[i,j,:,v] = pchip(tcfd)
+       
         # Write to PLOT3D
-        fname = run + '_Disturbance_tStart' + str(t_start).zfill(5) 
+        fname = run + '_Disturbance_tStart' + str(t_start).zfill(5)
         print('writing' + fname)
-        vecr = np.linspace(0,nstepcfd*Lxdom/ns,nstepcfd)
+        vecr = np.linspace(0,(nstepcfd)*Lxdom/ns,nstepcfd)
         vecs = Lydom*np.linspace(0,1,ns+1)
         vect = Lzdom*np.linspace(0,1,nt+1)
-        sgrids,tgrids,rgrids = np.meshgrid(vecs,vect,vecr,indexing='ij') 
-        writeP3D(sgrids/cfdgridunit,tgrids/cfdgridunit,rgrids/cfdgridunit,qi,fname)
+        sgrids,tgrids,rgrids = np.meshgrid(vecs,vect,vecr,indexing='ij')
+        writeP3D(sgrids/cfdgridunit,tgrids/cfdgridunit,rgrids/cfdgridunit,qinterp,fname)
                
 def plotTrajectoryField(fn,file_id,tstart,t_hat,time,x,y,z,vh_s):
     ind = [0,0,0]
