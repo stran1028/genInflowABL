@@ -9,7 +9,6 @@ import struct
 #   RST = coordinate system in the frame of vehicle (r aft, s starboard, t up)
 
 # setting global variables from helios inputs.py file
-rinf = 1.224
 gamma = 1.4                        # ratio of specific heats
 rgas = 287.05                   # Gas constant,      J/kg/K
 rinf = 1.1397633                       # density,           kg/m^3
@@ -22,11 +21,10 @@ mach = 0.2
 # CFD simulation inputs
 rpm = 700
 tRev = 60/rpm
-tBuff = 20*tRev # time at beginning of simulation before manuever begins
 tRestart = 0 # timestep that the restart run will begin, 0 means no restart
-
 dpsi = 10.00
 dtcfd = (dpsi/360)*tRev
+
 cfdgridunit = 1.000
 xyzlo = [-16,16,16] # minimum pt in domain
 Lxdom = 32 # lengths of cfd domain
@@ -37,7 +35,8 @@ ns = 128  # number of probes in starboard dir
 nt = 128  # number of probes in vertical dir
 
 # Vehicle trajectory information
-Ltime = 20 # length of trajectory
+tManeuver = 20 # length of trajectory
+tBuff = 20*tRev # time at beginning of simulation before manuever begins
 vh_s0 = [175,25,45] # this is the vertiport location (meters)
 
 def main():
@@ -73,14 +72,14 @@ def main():
     # start at different timesteps to get different disturbances
     for t_start in [1]: #, 500, 1000, 1500, 2000, 2500, 3000]:
         print("time start index: ", t_start)
-        t_end = np.argsort(abs(time-(time[t_start]+Ltime)))[0]
+        t_end = np.argsort(abs(time-(time[t_start]+tManeuver+tBuff)))[0]
         ntime = t_end-t_start+1
         ftime = time[t_start:t_end+1]-time[t_start]
 
         #==================================================
         # COMPUTE THE FLIGHT TRAJECTORY
         #==================================================
-        vh_s,vh_v,vh_a = computeTrajectory(vh_s0,45,ftime)
+        vh_s,vh_v,vh_a = computeTrajectory(run,vh_s0,45,ftime)
 
         #==================================================
         # GENERATE THE HELIOS ABL INITIAL CONDITION FILE
@@ -141,10 +140,10 @@ def main():
             vecs = np.linspace(-Lydom/2,Lydom/2,ns+1)
             vect = np.linspace(-Lzdom/2,Lzdom/2,nt+1)
             rgrids,sgrids,tgrids = np.meshgrid(vecr,vecs,vect,indexing='ij') 
-            xyz = (vh_s[k,:]
-              + rgrids[..., np.newaxis] * r_hat
-              + sgrids[..., np.newaxis] * s_hat
-              + tgrids[..., np.newaxis] * t_hat)
+#            xyz = (vh_s[k,:]
+#              + rgrids[..., np.newaxis] * r_hat
+#              + sgrids[..., np.newaxis] * s_hat
+#              + tgrids[..., np.newaxis] * t_hat)
 
             U,V,W = extractPALM(file_id,xyz[0:1,:,:,:],k+t_start,x,y,z) 
 
@@ -158,19 +157,13 @@ def main():
             vmag = np.linalg.norm(q[:,:,k,1:4]/q[:,:,k,0:1], axis=-1)  
             q[:,:,k,4] = 1/(gamma*(gamma-1)) + 0.5*vmag**2
 
-        # Add buffer at beginning before motion starts
-        tmod = np.concatenate((np.array([0]),ftime+tBuff))
-        qmod = np.zeros((ns+1,nt+1,ntime+1,5))
-        qmod[:,:,0,:] = q[:,:,0,:]
-        qmod[:,:,1:,:] = q
-
         # Helios ABL routine reads time series in the inlet plane ref frame
         # x = starboard, y = vertical up, z = time
-        qmod = np.asarray(qmod[:,:,:,[0,2,3,1,4]],dtype=np.float64)
+        q = np.asarray(q[:,:,:,[0,2,3,1,4]],dtype=np.float64)
 
         # check if any nans at the end
         print("Indices of nans in solution: ")
-        print(np.where(np.isnan(qmod))[0])
+        print(np.where(np.isnan(q))[0])
 
         # Here we use Pchip interpolation to resample time series data 
         # to match Helios CFD's timestep. Helps avoid interpolation
@@ -179,14 +172,14 @@ def main():
         # 
         # q = size(nstarboard,nvertical,ntime,5)
         # qinterp = size(nstarboard,nvertical,nstepcfd,5)
-        tcfd = np.arange(tRestart,tmod[-1],dtcfd)
+        tcfd = np.arange(tRestart,ftime[-1],dtcfd)
         nstepcfd = len(tcfd)
         qinterp = np.zeros((ns+1,nt+1,nstepcfd,5))
         print(f"resampling to dt = {dtcfd}, shape = {qinterp.shape}")
         for i in range(ns+1):
             for j in range(nt+1):
                 for v in range(5):
-                    pchip = PchipInterpolator(tmod,qmod[i,j,:,v])
+                    pchip = PchipInterpolator(ftime,q[i,j,:,v])
                     qinterp[i,j,:,v] = pchip(tcfd)
        
         # Write to PLOT3D
@@ -282,10 +275,11 @@ def getRSTVectors(ftime,vh_s,k1,k2):
 
     return r_hat,s_hat,t_hat
 
-def computeTrajectory(vh_s0,azi,ftime):
+def computeTrajectory(run,vh_s0,azi,ftime):
     # resample time to uniform grid for simplicity
-    ntime = len(ftime)
-    t = np.linspace(0,ftime[-1]-ftime[0],ntime)
+    dt = tManeuver/512 
+    t = np.arange(0,tManeuver+tBuff,dt)
+    ntime = len(t)
     
     # vertiport approach acceleration components
     # |vh_a| = 0.1*9.81         0.1g from Jeremy Bain
@@ -300,10 +294,14 @@ def computeTrajectory(vh_s0,azi,ftime):
     
     # setting vertiport location as t0 and calculating departure as it's_hat simpler
     s[0]=vh_s0
-    
-    # need the 0:1 slice here to keep from flattening to 1D automatically
-    s[1:,:] = s[0:1,:] + 0.5*vh_a*t[1:,np.newaxis]**2
-    
+    for i in range(1,ntime):
+        if t[i] <= tManeuver: # accelerating flight
+            v[i] = v[i-1] + vh_a * dt
+            s[i,:] = s[i-1,:] + dt*v[i,:] + 0.5*vh_a*dt**2
+        else: # buffer of no acceleration
+            v[i] = v[i-1] 
+            s[i,:] = s[i-1,:] + dt*v[i,:]
+ 
     # flip in time to make it approach, not departure
     s = np.flip(s, axis=0)
    
@@ -311,7 +309,27 @@ def computeTrajectory(vh_s0,azi,ftime):
     pchip = PchipInterpolator(t, s, axis=0)
     vh_s = pchip(ftime)
     vh_v = pchip.derivative()(ftime)
-    
+
+    # write PSUWOPWOP nonperiodic change of basis file for 
+    # aircraft trajectory
+    fname = run+"_WOPWOP_Traj"
+    with open(fname+".dat","w") as f:
+        f.write("1\n")
+        f.write(f"{len(ftime)}\n")
+        f.write("0 1 0\n")
+        
+        f.write(str(ftime)[1:-1])
+        f.write(str(s[:,0])[1:-1])
+        f.write(str(s[:,1])[1:-1])
+        f.write(str(s[:,2])[1:-1])
+
+    fig,ax = plt.subplots(2)
+    ax[0].plot(ftime,vh_s)
+    ax[0].set_ylabel('s (m)') 
+    ax[1].plot(ftime,vh_v)
+    ax[1].set_ylabel('v (m/s)')
+    plt.savefig(fname + ".png")
+ 
     return vh_s, vh_v, vh_a
 
 def extractPALM(file_id,xyz,t,x,y,z):
