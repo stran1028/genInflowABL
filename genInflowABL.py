@@ -313,15 +313,15 @@ def computeTrajectory(run,vh_s0,azi,ftime):
     # write PSUWOPWOP nonperiodic change of basis file for 
     # aircraft trajectory
     fname = run+"_WOPWOP_Traj"
+    outdata = np.column_stack((ftime,vh_s-vh_s0)).ravel('F')
+    fmt="{:12.5E}"
     with open(fname+".dat","w") as f:
         f.write("1\n")
         f.write(f"{len(ftime)}\n")
         f.write("0 1 0\n")
+        for i in range(len(outdata)):
+            f.write(f"{outdata[i]}\n")
         
-        f.write(str(ftime)[1:-1])
-        f.write(str(s[:,0])[1:-1])
-        f.write(str(s[:,1])[1:-1])
-        f.write(str(s[:,2])[1:-1])
 
     fig,ax = plt.subplots(2)
     ax[0].plot(ftime,vh_s)
