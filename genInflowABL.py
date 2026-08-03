@@ -37,6 +37,7 @@ nt = 128  # number of probes in vertical dir
 # Vehicle trajectory information
 tManeuver = 20 # length of trajectory
 tBuff = 20*tRev # time at beginning of simulation before manuever begins
+vport = [175,25,30] # top of the vertiport (meters)
 vh_s0 = [175,25,45] # this is the vertiport location (meters)
 
 def main():
@@ -79,7 +80,7 @@ def main():
         #==================================================
         # COMPUTE THE FLIGHT TRAJECTORY
         #==================================================
-        vh_s,vh_v,vh_a = computeTrajectory(run,vh_s0,45,ftime)
+        vh_s,vh_v,vh_a = computeTrajectory(run,vh_s0,vport,45,ftime)
 
         #==================================================
         # GENERATE THE HELIOS ABL INITIAL CONDITION FILE
@@ -275,7 +276,7 @@ def getRSTVectors(ftime,vh_s,k1,k2):
 
     return r_hat,s_hat,t_hat
 
-def computeTrajectory(run,vh_s0,azi,ftime):
+def computeTrajectory(run,vh_s0,vport,azi,ftime):
     # resample time to uniform grid for simplicity
     dt = tManeuver/512 
     t = np.arange(0,tManeuver+tBuff,dt)
@@ -291,8 +292,9 @@ def computeTrajectory(run,vh_s0,azi,ftime):
     
     # vehicle displacement array
     s = np.zeros((ntime,3))
+    v = np.zeros((ntime,3))
     
-    # setting vertiport location as t0 and calculating departure as it's_hat simpler
+    # setting vertiport location as t0 and calculating departure as it's simpler
     s[0]=vh_s0
     for i in range(1,ntime):
         if t[i] <= tManeuver: # accelerating flight
@@ -311,24 +313,35 @@ def computeTrajectory(run,vh_s0,azi,ftime):
     vh_v = pchip.derivative()(ftime)
 
     # write PSUWOPWOP nonperiodic change of basis file for 
-    # aircraft trajectory
+    # aircraft trajectory. first need to unrotate the flight 
+    # trajectory so it's in the aircraft frame (to match CFD)
     fname = run+"_WOPWOP_Traj"
-    outdata = np.column_stack((ftime,vh_s-vh_s0)).ravel('F')
+    vec_rot = np.zeros(vh_s.shape)
+    vec = vh_s-vport
+    azi_rot = -azi
+    vec_rot[:,0] = vec[:,0]*np.cos(np.pi*azi_rot/180) - vec[:,1]*np.sin(np.pi*azi_rot/180)
+    vec_rot[:,1] = vec[:,0]*np.sin(np.pi*azi_rot/180) + vec[:,1]*np.cos(np.pi*azi_rot/180)
+    vec_rot[:,2] = vec[:,2]
+
+    outdata = np.column_stack((ftime,vec_rot)).ravel('F')
     fmt="{:12.5E}"
-    with open(fname+".dat","w") as f:
+    with open(fname+".dat", "w") as f:
         f.write("1\n")
         f.write(f"{len(ftime)}\n")
         f.write("0 1 0\n")
         for i in range(len(outdata)):
             f.write(f"{outdata[i]}\n")
-        
-
-    fig,ax = plt.subplots(2)
-    ax[0].plot(ftime,vh_s)
-    ax[0].set_ylabel('s (m)') 
-    ax[1].plot(ftime,vh_v)
-    ax[1].set_ylabel('v (m/s)')
-    plt.savefig(fname + ".png")
+        """
+        for i in range(0, len(outdata), nchar):
+            row = outdata[i:i + nchar]
+            line = "".join(fmt.format(x) for x in row)
+            f.write(line + "\n")
+        """
+            
+    fig,ax = plt.subplots(1)
+    ax.plot(ftime,vec_rot)
+    ax.set_ylabel('s (m)') 
+    plt.savefig(fname + ".png") 
  
     return vh_s, vh_v, vh_a
 
