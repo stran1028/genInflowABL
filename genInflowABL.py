@@ -26,7 +26,7 @@ dpsi = 10.00
 dtcfd = (dpsi/360)*tRev
 
 cfdgridunit = 1.000
-xyzlo = [-16,16,16] # minimum pt in domain
+xyzlo = [-16,-16,-16] # minimum pt in domain
 Lxdom = 32 # lengths of cfd domain
 Lydom = 32 # lengths of cfd domain
 Lzdom = 32 # lengths of cfd domain
