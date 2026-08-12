@@ -38,7 +38,7 @@ nt = 128  # number of probes in vertical dir
 tManeuver = 20 # length of trajectory
 tBuff = 20*tRev # time at beginning of simulation before manuever begins
 vport = [175,25,30] # top of the vertiport (meters)
-vh_s0 = [175,25,45] # this is the vertiport location (meters)
+vh_s0 = [175,25,45] # end hover position of the aircraft (meters)
 
 def main():
     run = 'Beach4pm'
@@ -73,7 +73,7 @@ def main():
     # start at different timesteps to get different disturbances
     for t_start in [1]: #, 500, 1000, 1500, 2000, 2500, 3000]:
         print("time start index: ", t_start)
-        t_end = np.argsort(abs(time-(time[t_start]+tManeuver+tBuff)))[0]
+        t_end = np.argsort(abs(time-(time[t_start]+tManeuver+2*tBuff)))[0]
         ntime = t_end-t_start+1
         ftime = time[t_start:t_end+1]-time[t_start]
 
@@ -125,16 +125,18 @@ def main():
             # For each step in the trajectory, create a plane of probes to save and
             # calculate the location in x,y,z, closest each probe location
             # at each timestep
-            if(k==0):
-                k1 = k
-                k2 = k+1
-            elif(k==ntime-1):
-                k1 = k-1
-                k2 = k
-            else:
-                k1 = k-1
-                k2 = k+1    
-            r_hat,s_hat,t_hat = getRSTVectors(ftime,vh_s,k1,k2)
+            # Once helicopter stationary in hover, keep old rst vectors
+            if(ftime[k]<=tBuff+tManeuver): 
+                if(k==0):
+                    k1 = k
+                    k2 = k+1
+                elif(k==ntime-1):
+                    k1 = k-1
+                    k2 = k
+                else:
+                    k1 = k-1
+                    k2 = k+1    
+                r_hat,s_hat,t_hat = getRSTVectors(ftime,vh_s,k1,k2)
 
             # compute the XYZ coordinates of the upstream plane
             vecr = np.linspace(-Lxdom/2,Lxdom/2,nr+1)
@@ -183,6 +185,13 @@ def main():
                     pchip = PchipInterpolator(ftime,q[i,j,:,v])
                     qinterp[i,j,:,v] = pchip(tcfd)
        
+        # write out to txt file to post process offline
+        utmp = qinterp[ns//2,nt//2,:,3]
+        vtmp = qinterp[ns//2,nt//2,:,1]
+        wtmp = qinterp[ns//2,nt//2,:,2]
+        outdata = np.column_stack((tcfd, ainf*utmp, ainf*vtmp, ainf*wtmp))
+        np.savetxt("timeseries.dat", outdata)
+
         # Write to PLOT3D
         fname = run + '_Disturbance_tStart' + str(t_start).zfill(5)
         print('writing' + fname)
@@ -279,7 +288,7 @@ def getRSTVectors(ftime,vh_s,k1,k2):
 def computeTrajectory(run,vh_s0,vport,azi,ftime):
     # resample time to uniform grid for simplicity
     dt = tManeuver/512 
-    t = np.arange(0,tManeuver+tBuff,dt)
+    t = np.arange(0,tManeuver+2*tBuff,dt)
     ntime = len(t)
     
     # vertiport approach acceleration components
@@ -297,14 +306,14 @@ def computeTrajectory(run,vh_s0,vport,azi,ftime):
     # setting vertiport location as t0 and calculating departure as it's simpler
     s[0]=vh_s0
     for i in range(1,ntime):
-        if t[i] <= tManeuver: # accelerating flight
+        if (t[i] <= tBuff) or (t[i] > tManeuver+tBuff): # no acceleration at beginning or end of flight
+            v[i] = v[i-1] 
+            s[i,:] = s[i-1,:] + dt*v[i,:] 
+        else: # accelerating flight
             v[i] = v[i-1] + vh_a * dt
             s[i,:] = s[i-1,:] + dt*v[i,:] + 0.5*vh_a*dt**2
-        else: # buffer of no acceleration
-            v[i] = v[i-1] 
-            s[i,:] = s[i-1,:] + dt*v[i,:]
- 
-    # flip in time to make it approach, not departure
+
+    # flip in time to make it deccelerating approach, not accelerating departure
     s = np.flip(s, axis=0)
    
     # reinterpolate back to uneven timesteps (ftime) 
@@ -340,9 +349,19 @@ def computeTrajectory(run,vh_s0,vport,azi,ftime):
             
     fig,ax = plt.subplots(1)
     ax.plot(ftime,vec_rot)
+    ax.set_xlabel('sec') 
     ax.set_ylabel('s (m)') 
-    plt.savefig(fname + ".png") 
- 
+    plt.savefig(fname + "_VhS.png") 
+
+    vec_rot[:,0] = vh_v[:,0]*np.cos(np.pi*azi_rot/180) - vh_v[:,1]*np.sin(np.pi*azi_rot/180)
+    vec_rot[:,1] = vh_v[:,0]*np.sin(np.pi*azi_rot/180) + vh_v[:,1]*np.cos(np.pi*azi_rot/180)
+    vec_rot[:,2] = vh_v[:,2]
+    fig,ax = plt.subplots(1)
+    ax.plot(ftime,vec_rot)
+    ax.set_xlabel('sec') 
+    ax.set_ylabel('v (m/s)') 
+    plt.savefig(fname + "_VhV.png") 
+    
     return vh_s, vh_v, vh_a
 
 def extractPALM(file_id,xyz,t,x,y,z):
